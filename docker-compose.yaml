@@ -1,0 +1,401 @@
+version: '3.8'
+
+x-airflow-common: &airflow-common
+  build:
+    context: ./airflow_dockerfile
+    dockerfile: Dockerfile
+  user: "${AIRFLOW_UID}:${AIRFLOW_GID}"
+  env_file:
+    - .env
+  environment:
+    AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+    environment:
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+    AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+    AIRFLOW__CELERY__BROKER_URL: redis://redis:6379/0
+    AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY}
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
+    AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+    AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL: 5
+    _AIRFLOW_DB_MIGRATE: 'true'
+    _AIRFLOW_WWW_USER_CREATE: 'true'
+    _AIRFLOW_WWW_USER_USERNAME: ${_AIRFLOW_WWW_USER_USERNAME}
+    _AIRFLOW_WWW_USER_PASSWORD: ${_AIRFLOW_WWW_USER_PASSWORD}
+  volumes:
+    - ./dags:/opt/airflow/dags
+    - ./airflow/logs:/opt/airflow/logs
+    - ./plugins:/opt/airflow/plugins
+    - ./scripts:/opt/airflow/scripts
+  depends_on:
+    postgres:
+      condition: service_healthy
+  networks:
+    - all_in_one
+
+services:
+  postgres_dwh:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: ${POSTGRES_DWH_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_DWH_PASSWORD}
+      POSTGRES_DB: analytical_db
+    command: ["postgres", "-c", "wal_level=logical"]
+    ports:
+      - "5433:5432"
+    restart: always
+    volumes:
+      - postgres-db-volume:/var/lib/postgresql/data
+      - ./src/init_db:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: [ "CMD", "pg_isready", "-U", "airflow" ]
+      interval: 5s
+      retries: 5
+    networks:
+      - all_in_one
+
+
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: airflow
+    volumes:
+      - postgres-airflow-volume:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 10s
+      retries: 5
+      start_period: 5s
+    restart: always
+    networks:
+      - all_in_one
+  
+  metabase:
+    build:
+      context: .
+      dockerfile: ./metabase/Dockerfile
+    container_name: metabase
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres_dwh:
+        condition: service_healthy
+    networks:
+      - all_in_one
+
+  redis:
+    image: redis:latest
+    container_name: redis
+    ports:
+      - "6379:6379"
+    networks:
+      - all_in_one
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    ports:
+      - "8123:8123"  # HTTP-интерфейс (для запросов и UI)
+      - "9000:9000"  # Нативный протокол (для клиентов)
+    environment:
+      CLICKHOUSE_DB: analytical_agg
+      CLICKHOUSE_USER: admin
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse  # Для сохранения данных
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8123/ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - all_in_one
+
+
+  af-webserver:
+    <<: *airflow-common
+    container_name: af-webserver
+    command: webserver
+    ports:
+      - "8080:8080"
+    restart: always
+
+  af-scheduler:
+    <<: *airflow-common
+    container_name: af-scheduler
+    command: scheduler
+    restart: always
+
+  af-worker:
+    <<: *airflow-common
+    container_name: af-worker
+    command: celery worker
+    ports:
+      - "4041:4041"
+    restart: always
+
+  airflow-init:
+    <<: *airflow-common
+    container_name: airflow-init
+    command:
+      - bash
+      - -c
+      - |
+          echo "Airflow version"
+          airflow version
+          airflow connections add 'spark_default' \
+            --conn-type 'spark' \
+            --conn-host 'local' \
+            --conn-extra '{"spark-binary": "spark-submit", "deploy-mode": "client"}'
+
+          airflow connections add 'postgres_db' \
+            --conn-type 'postgres' \
+            --conn-host 'postgres' \
+            --conn-login "${POSTGRES_DWH_USER}" \
+            --conn-password "${POSTGRES_DWH_PASSWORD}" \
+            --conn-schema 'analytical_db' \
+            --conn-port 5433
+        
+          airflow connections add 'metadata_db' \
+            --conn-type 'postgres' \
+            --conn-host 'postgres' \
+            --conn-login "${POSTGRES_USER}" \
+            --conn-password "${POSTGRES_PASSWORD}" \
+            --conn-schema 'metadata' \
+            --conn-port 5432
+        
+          airflow connections add 'minios3_conn' \
+            --conn-type 'aws' \
+            --conn-login "${MINIO_ROOT_USER}" \
+            --conn-password "${MINIO_ROOT_PASSWORD}" \
+            --conn-extra '{"endpoint_url": "http://minio:9000"}'
+
+          airflow connections add 'clickhouse_conn' \
+          --conn-type 'clickhouse' \
+          --conn-host 'clickhouse' \
+          --conn-login "admin" \
+          --conn-password "${CLICKHOUSE_PASSWORD}" \
+          --conn-port 8123 \
+          --conn-extra '{"secure":false, "verify":false}'
+
+
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    hostname: zookeeper
+    container_name: zookeeper
+    ports:
+      - '2181:2181'
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    healthcheck:
+      test: echo srvr | nc zookeeper 2181 || exit 1
+      start_period: 10s
+      retries: 20
+      interval: 10s
+    networks:
+      - all_in_one
+
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    hostname: kafka
+    container_name: kafka
+    ports:
+      - '29092:29092'
+      - '9092:9092'
+      - '9101:9101'
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+      KAFKA_JMX_PORT: 9101
+      KAFKA_JMX_HOSTNAME: localhost
+    healthcheck:
+      test: nc -z localhost 9092 || exit -1
+      start_period: 15s
+      interval: 5s
+      timeout: 10s
+      retries: 10
+    networks:
+      - all_in_one
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    ports:
+      - "8082:8080"
+    depends_on:
+      - kafka
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+      KAFKA_CLUSTERS_0_KAFKACONNECT_0_NAME: connect
+      KAFKA_CLUSTERS_0_KAFKACONNECT_0_ADDRESS: http://debezium:8083
+      KAFKA_CLUSTERS_0_SCHEMAREGISTRY_URL: http://schema-registry:8081
+    networks:
+      - all_in_one
+
+  debezium:
+    image: debezium/connect:2.6.2.Final
+    container_name: debezium
+    hostname: debezium
+    depends_on:
+      postgres_dwh:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    ports:
+      - '8083:8083'
+    environment:
+      # Основные настройки Connect
+      BOOTSTRAP_SERVERS: kafka:29092
+      CONNECT_REST_ADVERTISED_HOST_NAME: debezium
+      GROUP_ID: 1
+      CONFIG_STORAGE_TOPIC: connect_configs
+      STATUS_STORAGE_TOPIC: connect_statuses
+      OFFSET_STORAGE_TOPIC: connect_offsets
+      KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      ENABLE_DEBEZIUM_SCRIPTING: 'true'
+      CONNECT_KEY_CONVERTER_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      CONNECT_VALUE_CONVERTER_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+
+    healthcheck:
+      test:
+        [ 'CMD', 'curl', '--silent', '--fail', '-X', 'GET', 'http://localhost:8083/connectors', ]
+      start_period: 10s
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - all_in_one
+  
+  
+  
+  connector-init:
+    image: curlimages/curl
+    depends_on:
+      debezium:
+        condition: service_healthy
+    command: 
+      - sh
+      - -c
+      - |
+        curl -i -X POST \
+          -H "Accept:application/json" \
+          -H "Content-Type:application/json" \
+          http://debezium:8083/connectors/ \
+          -d '{
+            "name": "debezium-postgres-connector",
+            "config": {
+              "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+              "database.hostname": "postgres_dwh",
+              "database.port": "5432",
+              "database.user": "postgres",
+              "database.password": "postgres",
+              "database.dbname": "analytical_db",
+              "topic.prefix": "cdc",
+              "decimal.handling.mode": "string",
+              "table.include.list": "stg_analytical.*",
+              "plugin.name": "pgoutput",
+              "slot.name": "debezium_slot",
+              "publication.name": "debezium_pub",
+              "snapshot.mode": "initial"
+            }
+          }'
+    networks:
+      - all_in_one
+
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.4.0
+    hostname: schema-registry
+    container_name: schema-registry
+    depends_on:
+      - zookeeper
+      - kafka
+    ports:
+      - "8081:8081"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: "kafka:29092"
+      SCHEMA_REGISTRY_LISTENERS: "http://0.0.0.0:8081"
+      SCHEMA_REGISTRY_KAFKASTORE_SECURITY_PROTOCOL: "PLAINTEXT"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - all_in_one
+
+  debezium-ui:
+    image: debezium/debezium-ui:latest
+    container_name: debezium-ui
+    hostname: debezium-ui
+    depends_on:
+      debezium:
+        condition: service_healthy
+    ports:
+      - '8088:8080'
+    environment:
+      KAFKA_CONNECT_URIS: http://debezium:8083
+    networks:
+      - all_in_one
+
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    ports:
+      - "9001:9001"  # UI
+      - "9002:9000"  # API
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    command: server /data --console-address ":9001"
+    volumes:
+      - ./s3_storage:/data
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:9000/minio/health/ready" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - all_in_one
+
+  create-bucket:
+    image: minio/mc
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://minio:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD}; do
+        echo 'Waiting for MinIO...';
+        sleep 5;
+      done;
+      
+      mc mb -p local/${MINIO_PROD_BUCKET_NAME} || true;
+      mc policy set public local/${MINIO_PROD_BUCKET_NAME} || true;
+      
+      "
+    depends_on:
+      minio:
+        condition: service_healthy
+    networks:
+      - all_in_one
+
+
+volumes:
+  postgres-db-volume:
+  postgres-airflow-volume:
+  clickhouse_data:
+
+
+networks:
+  all_in_one:
+    driver: bridge
