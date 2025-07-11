@@ -136,6 +136,7 @@ services:
 
   airflow-init:
     <<: *airflow-common
+    user: "0:0"
     container_name: airflow-init
     command:
       - bash
@@ -248,9 +249,11 @@ services:
     container_name: debezium
     hostname: debezium
     depends_on:
-      postgres_dwh:
+      zookeeper:  # Явно указываем Zookeeper (опционально)
         condition: service_healthy
       kafka:
+        condition: service_healthy
+      postgres_dwh:
         condition: service_healthy
     ports:
       - '8083:8083'
