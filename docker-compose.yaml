@@ -224,6 +224,8 @@ services:
       interval: 5s
       timeout: 10s
       retries: 10
+    depends_on:
+      - zookeeper
     networks:
       - all_in_one
 
@@ -233,6 +235,7 @@ services:
     ports:
       - "8082:8080"
     depends_on:
+      - zookeeper
       - kafka
     environment:
       KAFKA_CLUSTERS_0_NAME: local
