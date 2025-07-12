@@ -1,19 +1,12 @@
 FROM apache/airflow:2.10.5-python3.12
 
-# Установка системных зависимостей
+COPY requirements.txt /requirements.txt
+
+RUN python -m pip install  --upgrade pip && \
+    pip install --no-cache-dir -r /requirements.txt
+
 USER root
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-        openjdk-17-jre-headless \
-        curl && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+RUN apt update && \
+    apt install -y openjdk-17-jre-headless
 
-# Возвращаемся к пользователю airflow
 USER airflow
-
-# Установка зависимостей Python
-COPY --chown=airflow:root requirements.txt /tmp/requirements.txt
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r /tmp/requirements.txt && \
-    rm /tmp/requirements.txt
