@@ -205,3 +205,4 @@ dags/.DS_Store
 .DS_Store
 s3_storage/
 temp/
+.git
