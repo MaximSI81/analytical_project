@@ -1,0 +1,8 @@
+airflow-providers-clickhouse==0.0.1
+apache-airflow-providers-apache-spark==4.11.1
+pandas
+pyspark==3.5.0 --no-cache-dir
+faker
+psycopg2-binary
+duckdb
+apache-airflow-providers-telegram==3.1

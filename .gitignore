@@ -132,6 +132,7 @@ celerybeat.pid
 .venv
 env/
 venv/
+myenv/
 ENV/
 env.bak/
 venv.bak/
@@ -192,3 +193,17 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+
+test.ipynb
+test.py
+
+logs/
+data_lake/
+.idea/
+dags/__pycache__/
+clickhouse/*
+!clickhouse/init
+dags/.DS_Store
+.DS_Store
+s3_storage/
+temp/
