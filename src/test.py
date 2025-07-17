@@ -4,6 +4,8 @@ from pyspark.sql.types import StructType, StructField, StringType, LongType
 import json
 import os
 
+print(os.getenv("AWS_ACCESS_KEY_ID"))
+
 spark = SparkSession.builder \
     .appName("KafkaBinaryDecoder") \
     .config("spark.ui.port", "4045") \
@@ -11,13 +13,13 @@ spark = SparkSession.builder \
            "org.apache.hadoop:hadoop-aws:3.3.4"
                                     ) \
     .config("spark.hadoop.fs.s3a.endpoint", "http://localhost:9006") \
-    .config("spark.network.timeout", "600s") \
-    .config("spark.hadoop.fs.s3a.access.key", os.getenv("MINIO_ROOT_USER")) \
-    .config("spark.hadoop.fs.s3a.secret.key", os.getenv("MINIO_ROOT_PASSWORD")) \
+    .config("spark.hadoop.fs.s3a.access.key", os.getenv("AWS_ACCESS_KEY_ID")) \
+    .config("spark.hadoop.fs.s3a.secret.key", os.getenv("AWS_SECRET_ACCESS_KEY")) \
+    .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem") \
     .config("spark.hadoop.fs.s3a.path.style.access", "true") \
     .getOrCreate()
 
-# 1. Чтение данных из Kafka
+# 1. Чтение данных из Kafka ("kafka.bootstrap.servers", "10.130.0.25:9092" - host заменить на свой)
 df = spark \
     .read \
     .format("kafka") \
@@ -46,7 +48,7 @@ schema = StructType([
 ])
 
 
-
+# 3. парсим и записываем в s3
 
 df.select(from_json(col("value"), schema).alias("t")) \
   .select(
@@ -62,7 +64,7 @@ df.select(from_json(col("value"), schema).alias("t")) \
     .write \
     .format("parquet") \
     .mode("append") \
-    .option("path", f"s3a://{os.getenv("MINIO_PROD_BUCKET_NAME")}/data5/") \
+    .option("path", f"s3a://{os.getenv("MINIO_PROD_BUCKET_NAME")}/data/") \
     .save()
 
 
