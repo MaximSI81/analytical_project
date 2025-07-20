@@ -26,12 +26,11 @@ x-airflow-common: &airflow-common
     - ${AIRFLOW_PROJ_DIR:-.}/scripts:/opt/airflow/scripts
 
   depends_on:
-
     &airflow-common-depends-on
-    redis:
-      condition: service_healthy
-    postgres:
-      condition: service_healthy
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
   networks:
     - all_in_one
 
@@ -286,11 +285,11 @@ services:
 
         airflow connections add 'postgres_db' \
           --conn-type 'postgres' \
-          --conn-host 'postgres' \
+          --conn-host 'postgres_dwh' \
           --conn-login "${POSTGRES_DWH_USER}" \
           --conn-password "${POSTGRES_DWH_PASSWORD}" \
           --conn-schema 'analytical_db' \
-          --conn-port 5433
+          --conn-port 5432
         
         airflow connections add 'metadata_db' \
           --conn-type 'postgres' \

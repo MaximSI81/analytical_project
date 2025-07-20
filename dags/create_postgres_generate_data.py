@@ -1,8 +1,11 @@
-
+import sys
+sys.path.append('/opt/airflow/dags/src')
 from airflow import DAG
-from airflow.providers.common.sql.operators.sql import SQLExecuteQueryOperator
-from opt.airflow.scripts.generate_data_action_users import *
+from airflow.operators.python import PythonOperator
+from airflow.providers.postgres.hooks.postgres import PostgresHook
+from src.generate_data_action_users import *
 from airflow.utils.dates import days_ago
+import pandas as pd
 
 
 args = {
@@ -10,6 +13,28 @@ args = {
     "start_date": days_ago(1),
     "retries": 1,
 }
+
+
+
+
+def load_data_postgres(**context):
+    df = pd.DataFrame(generate_data())
+        # Подключение к PostgreSQL
+    hook = PostgresHook(postgres_conn_id="postgres_db")
+    engine = hook.get_sqlalchemy_engine()
+    
+    # Вставка всего DataFrame
+    df.to_sql(
+        name='action_users',          # Название таблицы
+        con=engine,                  # Подключение
+        schema='stg_analytical',     # Схема (если нужна)
+        if_exists='append',          # Добавить к существующим данным
+        index=False,                 # Не вставлять индексы
+        method='multi',              # Пакетная вставка
+        chunksize=100              # Размер пачки для вставки
+    )
+
+
 
 
 with DAG(
@@ -21,30 +46,8 @@ with DAG(
     tags=['generate', 'load_postgres'],
     concurrency=1,
 ) as dag:
-    load_data_postgres = SQLExecuteQueryOperator(task_id="load_data_postgres",
-                                                 conn_id="postgres_db",
-                                                 autocommit=True,
-                                                 sql=""" INSERT INTO stg_analytical.action_users (user_id, 
-                                                                                                   session_id, 
-                                                                                                   traffic_source, 
-                                                                                                   session_start, 
-                                                                                                   session_end, 
-                                                                                                   device, 
-                                                                                                   name_link, 
-                                                                                                   action_type, 
-                                                                                                   purchase_amount,
-                                                                                                   created_at)
-                                                        VALUES (%(user_id)s, 
-                                                                %(session_id)s, 
-                                                                %(traffic_source)s, 
-                                                                %(session_start)s, 
-                                                                %(session_end)s, 
-                                                                %(device)s, 
-                                                                %(name_link)s, 
-                                                                %(action_type)s, 
-                                                                %(purchase_amount)s,
-                                                                NOW())""",
-                                                 parameters=generate_data(),
-                                                )
+    load_data = PythonOperator(task_id="load_data",
+                                python_callable=load_data_postgres,
+                                        )
     
     

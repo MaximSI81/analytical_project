@@ -1,7 +1,7 @@
 import pendulum
 import uuid
 import random
-
+import pandas
 
 def generate_data():
     device = ["desktop", "mobil", "Tablet"]
@@ -10,7 +10,7 @@ def generate_data():
     weights_link = [0.1, 0.4, 0.1, 0.15, 0.25]
     weights_action = [0.6, 0.3, 0.1]
     data_list = []
-    for i in range(10):
+    for _ in range(10):
         session_start = pendulum.now()
         session_end = pendulum.now() + pendulum.duration(milliseconds=random.randint(1000, 1000000))
         name_link = random.choices(list(link.keys()), weights=weights_link)[0] if (session_end - session_start).seconds > 15 else None
