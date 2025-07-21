@@ -1,5 +1,9 @@
 # analytical_project
-## Потоковый ETL
+
+## Архитектура ETL
+
+ - Airflow
+ - generated data -> Postgres -> Debezium -> Kafka -> pySpark -> S3 -> Clickhouse -> Metabase
 
 ## Требуемые зависимости Spark JAR
 
