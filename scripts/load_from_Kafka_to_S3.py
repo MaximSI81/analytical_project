@@ -2,11 +2,19 @@ from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, from_json, lit
 from pyspark.sql.types import StructType, StructField, StringType, LongType
 import pendulum
-import os
+import os, json
 
+
+TOPIK = 'cdc.stg_analytical.action_users'
+
+offsets_dict = {
+    TOPIK: {
+        "0": str(pendulum.now().format("YYYY-MM-DD")) + 'T00:00:00Z' }}
+
+starting_offsets = json.dumps(offsets_dict)
 
 spark = SparkSession.builder \
-    .appName("KafkaBinaryDecoder") \
+    .appName("KafkaSparkS3") \
     .config("spark.ui.port", "4045") \
     .config("spark.hadoop.fs.s3a.endpoint", "http://minio:9000") \
     .config("spark.hadoop.fs.s3a.access.key", os.getenv("AWS_ACCESS_KEY_ID")) \
@@ -15,12 +23,14 @@ spark = SparkSession.builder \
     .config("spark.hadoop.fs.s3a.path.style.access", "true") \
     .getOrCreate()
 
-# 1. Чтение данных из Kafka ("kafka.bootstrap.servers", "10.130.0.25:9092" - host заменить на свой)
+# 1. Чтение данных из Kafka 
 df = spark \
     .read \
     .format("kafka") \
     .option("kafka.bootstrap.servers", "kafka:29092") \
-    .option("subscribe", 'cdc.stg_analytical.action_users') \
+    .option("subscribe", TOPIK) \
+    .option("startingOffsets", starting_offsets) \
+    .option("endingOffsets", "latest") \
     .option("startingOffsets", "earliest") \
     .load() \
     .selectExpr("CAST(value AS STRING)")
@@ -63,7 +73,7 @@ df.select(from_json(col("value"), schema).alias("t")) \
     .format("parquet") \
     .mode("append") \
     .partitionBy("event_date") \
-    .option("path", f's3a://prod/data/action_users') \
+    .option("path", f's3a://prod/action_users') \
     .save()
 
 

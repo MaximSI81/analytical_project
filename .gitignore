@@ -206,3 +206,4 @@ dags/.DS_Store
 s3_storage/
 temp/
 .git
+airflow_dockerfile/spark/jars/
