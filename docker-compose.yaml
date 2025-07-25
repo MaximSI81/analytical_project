@@ -17,7 +17,11 @@ x-airflow-common: &airflow-common
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
     AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
     AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: 'true'
+    AIRFLOW__WEBSERVER__WARN_DEPLOYMENT_EXPOSURE: 'false'
     AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL: 10
+    AIRFLOW_VAR_AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+    AIRFLOW_VAR_AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+    
   volumes:
     - ${AIRFLOW_PROJ_DIR:-.}/dags:/opt/airflow/dags
     - ${AIRFLOW_PROJ_DIR:-.}/logs:/opt/airflow/logs
@@ -35,25 +39,7 @@ x-airflow-common: &airflow-common
     - all_in_one
 
 services:
-  postgres_dwh:
-    image: postgres:15
-    environment:
-      POSTGRES_USER: ${POSTGRES_DWH_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_DWH_PASSWORD}
-      POSTGRES_DB: analytical_db
-    command: ["postgres", "-c", "wal_level=logical"]
-    ports:
-      - "5433:5432"
-    restart: always
-    volumes:
-      - postgres-db-volume:/var/lib/postgresql/data
-      - ./src/init_db:/docker-entrypoint-initdb.d
-    healthcheck:
-      test: [ "CMD", "pg_isready", "-U", "airflow" ]
-      interval: 5s
-      retries: 5
-    networks:
-      - all_in_one
+
 
 
   postgres:
@@ -87,23 +73,18 @@ services:
       - all_in_one
 
   clickhouse:
-    image: clickhouse/clickhouse-server:latest
-    ports:
-      - "8123:8123"  # HTTP-интерфейс
-      - "9000:9000"  # Нативный протокол
+    image: clickhouse/clickhouse-server:25.4
     environment:
       CLICKHOUSE_DB: analytical_agg
-      CLICKHOUSE_USER: admin
-      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
-    healthcheck:
-      test: ["CMD-SHELL", "clickhouse-client --query 'SELECT 1' || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 40s  # Дополнительное время для инициализации
+      CLICKHOUSE_DISABLE_DEFAULT_SETTINGS: 1  # Отключает дефолтные настройки
+      CLICKHOUSE_DISABLE_INCLUDE_FROM_ENV: 1
+    ports:
+      - "8123:8123"
+      - "9010:9000"
     volumes:
-      - clickhouse_data:/var/lib/clickhouse
-      - ./clickhouse/config:/etc/clickhouse-server/config.d/  # Для кастомных конфигов
+      - ./clickhouse:/var/lib/clickhouse
+      - ./clickhouse_config:/etc/clickhouse-server/users.d
+      - ./clickhouse_init:/docker-entrypoint-initdb.d
     networks:
       - all_in_one
   
@@ -309,8 +290,9 @@ services:
           --conn-type 'clickhouse' \
           --conn-host 'clickhouse' \
           --conn-login "admin" \
-          --conn-password "${CLICKHOUSE_PASSWORD}" \
+          --conn-password "admin" \
           --conn-port 8123 \
+          --conn-database 'analytical_agg' \
           --conn-extra '{"secure":false, "verify":false}'
 
         # 9. Завершение
@@ -430,6 +412,26 @@ services:
       KAFKA_CLUSTERS_0_SCHEMAREGISTRY_URL: http://schema-registry:8081
     networks:
       - all_in_one
+  
+  postgres_dwh:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: ${POSTGRES_DWH_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_DWH_PASSWORD}
+      POSTGRES_DB: analytical_db
+    command: ["postgres", "-c", "wal_level=logical"]
+    ports:
+      - "5433:5432"
+    restart: always
+    volumes:
+      - postgres-db-volume:/var/lib/postgresql/data
+      - ./src/init_db:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: [ "CMD", "pg_isready", "-U", "airflow" ]
+      interval: 5s
+      retries: 5
+    networks:
+      - all_in_one
 
   debezium:
     image: debezium/connect:2.6.2.Final
@@ -461,9 +463,9 @@ services:
     healthcheck:
       test:
         [ 'CMD', 'curl', '--silent', '--fail', '-X', 'GET', 'http://localhost:8083/connectors', ]
-      start_period: 10s
-      interval: 10s
-      timeout: 5s
+      start_period: 45s
+      interval: 15s
+      timeout: 10s
       retries: 5
     networks:
       - all_in_one

@@ -7,7 +7,6 @@ from src.generate_data_action_users import *
 from airflow.utils.dates import days_ago
 import pandas as pd
 
-
 args = {
     "owner": 'Max',
     "start_date": days_ago(1),
@@ -40,7 +39,7 @@ def load_data_postgres(**context):
 with DAG(
     dag_id="Create_Postgres_data",
     default_args=args,
-    schedule_interval="0 * * * *",
+    schedule_interval="0 0 * * *",
     description="Загрузка сгенерированных данных в БД",
     catchup=False,
     tags=['generate', 'load_postgres'],

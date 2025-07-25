@@ -3,6 +3,15 @@ from pyspark.sql.functions import col, from_json, lit
 from pyspark.sql.types import StructType, StructField, StringType, LongType
 import pendulum
 import os, json
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--access-key', required=True)
+parser.add_argument('--secret-key', required=True)
+
+args = parser.parse_args()
+
+
 
 
 TOPIK = 'cdc.stg_analytical.action_users'
@@ -17,8 +26,8 @@ spark = SparkSession.builder \
     .appName("KafkaSparkS3") \
     .config("spark.ui.port", "4045") \
     .config("spark.hadoop.fs.s3a.endpoint", "http://minio:9000") \
-    .config("spark.hadoop.fs.s3a.access.key", os.getenv("AWS_ACCESS_KEY_ID")) \
-    .config("spark.hadoop.fs.s3a.secret.key", os.getenv("AWS_SECRET_ACCESS_KEY")) \
+    .config("spark.hadoop.fs.s3a.access.key", args.access_key) \
+    .config("spark.hadoop.fs.s3a.secret.key", args.secret_key) \
     .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem") \
     .config("spark.hadoop.fs.s3a.path.style.access", "true") \
     .getOrCreate()

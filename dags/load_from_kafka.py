@@ -1,4 +1,6 @@
 from airflow import DAG
+from airflow.operators.empty import EmptyOperator
+from airflow.sensors.external_task import ExternalTaskSensor
 from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
 from airflow.utils.dates import days_ago
 
@@ -20,7 +22,21 @@ with DAG(dag_id="Load_from_Kafka_to_s3",
          tags=['spark', 'kafka']
          ) as dag:
     
-    load_task = SparkSubmitOperator(
+        start = EmptyOperator(
+                task_id="start",
+                )
+
+        sensor_on_create_dag = ExternalTaskSensor(
+                task_id="sensor_on_create_dag",
+                external_dag_id="Create_Postgres_data",
+                allowed_states=["success"],
+                mode="reschedule",
+                timeout=360000,  # длительность работы сенсора
+                poke_interval=60,  # частота проверки
+        )
+    
+    
+        load_task = SparkSubmitOperator(
                                         task_id="load_from_kafka_toS3",
                                         application="/opt/airflow/scripts/load_from_Kafka_to_S3.py",
                                         jars=",".join([
@@ -31,6 +47,9 @@ with DAG(dag_id="Load_from_Kafka_to_s3",
                                                 "/opt/spark/jars/aws-java-sdk-bundle-1.12.262.jar",
                                                 "/opt/spark/jars/commons-pool2-2.11.1.jar"
                                         ]),
+                                        application_args=['--access-key', '{{ var.value.AWS_ACCESS_KEY_ID }}',
+                                                          '--secret-key', '{{ var.value.AWS_SECRET_ACCESS_KEY }}'
+                                                          ],
                                         conf={
                                                 "spark.hadoop.fs.s3a.connection.ssl.enabled": "false"
                                         },
@@ -38,3 +57,8 @@ with DAG(dag_id="Load_from_Kafka_to_s3",
                                         conn_id="spark_default",
                                         verbose=True
                                         )
+        end = EmptyOperator(
+                task_id="end",
+        )
+        
+        start >> sensor_on_create_dag >> load_task >> end
