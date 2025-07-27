@@ -39,9 +39,6 @@ x-airflow-common: &airflow-common
     - all_in_one
 
 services:
-
-
-
   postgres:
     image: postgres:15
     environment:
@@ -78,12 +75,13 @@ services:
       CLICKHOUSE_DB: analytical_agg
       CLICKHOUSE_DISABLE_DEFAULT_SETTINGS: 1  # Отключает дефолтные настройки
       CLICKHOUSE_DISABLE_INCLUDE_FROM_ENV: 1
+      CLICKHOUSE_USER: admin 
+      CLICKHOUSE_PASSWORD: admin
     ports:
       - "8123:8123"
       - "9010:9000"
     volumes:
       - ./clickhouse:/var/lib/clickhouse
-      - ./clickhouse_config:/etc/clickhouse-server/users.d
       - ./clickhouse_init:/docker-entrypoint-initdb.d
     networks:
       - all_in_one
@@ -292,7 +290,7 @@ services:
           --conn-login "admin" \
           --conn-password "admin" \
           --conn-port 8123 \
-          --conn-database 'analytical_agg' \
+          --conn-schema 'analytical_agg' \
           --conn-extra '{"secure":false, "verify":false}'
 
         # 9. Завершение

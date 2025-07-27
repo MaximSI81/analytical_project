@@ -2,6 +2,7 @@ import sys
 sys.path.append('/opt/airflow/dags/src')
 from airflow import DAG
 from airflow.operators.python import PythonOperator
+from airflow.operators.empty import EmptyOperator
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 from src.generate_data_action_users import *
 from airflow.utils.dates import days_ago
@@ -15,7 +16,6 @@ args = {
 
 
 
-
 def load_data_postgres(**context):
     df = pd.DataFrame(generate_data())
         # Подключение к PostgreSQL
@@ -24,13 +24,13 @@ def load_data_postgres(**context):
     
     # Вставка всего DataFrame
     df.to_sql(
-        name='action_users',          # Название таблицы
+        name='action_users',         # Название таблицы
         con=engine,                  # Подключение
         schema='stg_analytical',     # Схема (если нужна)
         if_exists='append',          # Добавить к существующим данным
         index=False,                 # Не вставлять индексы
         method='multi',              # Пакетная вставка
-        chunksize=100              # Размер пачки для вставки
+        chunksize=1000               # Размер пачки для вставки
     )
 
 
@@ -45,8 +45,16 @@ with DAG(
     tags=['generate', 'load_postgres'],
     concurrency=1,
 ) as dag:
+    
+    start = EmptyOperator(
+                task_id="start",
+        )
+    
     load_data = PythonOperator(task_id="load_data",
                                 python_callable=load_data_postgres,
                                         )
+    end = EmptyOperator(
+                task_id="end",
+        )
     
-    
+    start >> load_data >> end

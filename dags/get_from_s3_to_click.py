@@ -53,8 +53,7 @@ with DAG(dag_id="get_s3_to_click",
                                                           '--secret-key', '{{ var.value.AWS_SECRET_ACCESS_KEY }}',
                                                           '--jdbc-url', f'jdbc:ch://{host}:{port}/{database}',
                                                           '--db-user', user,
-                                                          '--db-password', password,
-                                                          '--table-name', 'data_mart_device'
+                                                          '--db-password', password
                                                           ],
                                  
                                         conn_id="spark_default",
