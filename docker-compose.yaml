@@ -81,7 +81,8 @@ services:
       - "8123:8123"
       - "9010:9000"
     volumes:
-      - ./clickhouse:/var/lib/clickhouse
+      - clickhouse_data:/var/lib/clickhouse
+      - clickhouse_config:/etc/clickhouse-server
       - ./clickhouse_init:/docker-entrypoint-initdb.d
     networks:
       - all_in_one
