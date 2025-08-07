@@ -425,7 +425,7 @@ services:
       - postgres-db-volume:/var/lib/postgresql/data
       - ./src/init_db:/docker-entrypoint-initdb.d
     healthcheck:
-      test: [ "CMD", "pg_isready", "-U", "airflow" ]
+      test: [ "CMD", "pg_isready", "-U", "postgres" ]
       interval: 5s
       retries: 5
     networks:

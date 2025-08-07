@@ -207,3 +207,5 @@ s3_storage/
 temp/
 .git
 airflow_dockerfile/spark/jars/
+spark-warehouse/
+src/test*

@@ -1,5 +1,5 @@
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import count, current_timestamp, col, when, isnull
+from pyspark.sql.functions import count, current_date, col, when, isnull
 from dotenv import load_dotenv
 load_dotenv()
 import pendulum, argparse
@@ -47,20 +47,20 @@ def write_to_click(name_df, jdbc_url, table_name, db_user, db_password):
     
     
 device_df = df.groupBy("device") \
-    .agg(current_timestamp().alias("load_date"), count("*").alias("users_amount"))
+    .agg(current_date().alias("load_date"), count("*").alias("users_amount"))
 
 device_df.printSchema()
 
 write_to_click(device_df, args.jdbc_url, 'data_mart_device', args.db_user, args.db_password)
     
 action_df = df.groupBy("action_type") \
-    .agg(current_timestamp().alias("load_date"), count("*").alias("users_amount"))
+    .agg(current_date().alias("load_date"), count("*").alias("users_amount"))
 
 action_df.printSchema()
 
 write_to_click(action_df, args.jdbc_url, 'data_mart_acton', args.db_user, args.db_password)
     
-traffic_df = df.groupBy("traffic_source").agg(current_timestamp().alias("load_date"), count("*").alias("users_amount"))
+traffic_df = df.groupBy("traffic_source").agg(current_date().alias("load_date"), count("*").alias("users_amount"))
 
 traffic_df.printSchema()
 
@@ -69,13 +69,14 @@ write_to_click(traffic_df, args.jdbc_url, 'data_mart_traffic', args.db_user, arg
 
 df.createTempView("purchase_view")
 
-purchase_df = spark.sql(""" SELECT current_date() as load_date,
-          name_link as name_product,
-          count(purchase_amount) as product_count,
-          cast(sum(purchase_amount) as decimal(10, 2)) as product_amount
-          FROM purchase_view
-          WHERE name_link IS NOT NULL
-          GROUP BY name_link;
+purchase_df = spark.sql(""" SELECT 
+                                current_date() as load_date,
+                                name_link as name_product,
+                                count(purchase_amount) as product_count,
+                                coalesce(cast(sum(purchase_amount) as decimal(10, 2)), 0.0) as product_amount
+                                FROM purchase_view
+                                WHERE name_link IS NOT NULL
+                                GROUP BY name_link;
           """)
 
 

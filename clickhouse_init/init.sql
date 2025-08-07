@@ -6,13 +6,13 @@ CREATE TABLE IF NOT EXISTS analytical_agg.data_mart_device (
 PARTITION BY toYYYYMM(load_date)
 ORDER BY (load_date, device);
 
-CREATE TABLE IF NOT EXISTS analytical_agg.data_mart_trafic (
+CREATE TABLE IF NOT EXISTS analytical_agg.data_mart_traffic (
     load_date Date,
-    trafic_source String,
+    traffic_source String,
     users_amount Int32
 ) ENGINE = MergeTree
 PARTITION BY toYYYYMM(load_date)
-ORDER BY (load_date, trafic_source);
+ORDER BY (load_date, traffic_source);
 
 CREATE TABLE IF NOT EXISTS analytical_agg.data_mart_acton (
     load_date Date,
